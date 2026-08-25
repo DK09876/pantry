@@ -1,0 +1,28 @@
+# Secrets - never commit
+.env
+*.key
+
+# Virtualenv
+ai_env/
+.venv/
+
+# Recorded audio / scratch
+recordings/
+*.wav
+*.mp3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Editor
+*.swp
+*.swo
+.vscode/
+
+# Local models (large binaries)
+models/
+*.gguf
+*.onnx
+*.bin
