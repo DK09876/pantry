@@ -3,7 +3,6 @@
 *.key
 
 # Virtualenv
-ai_env/
 .venv/
 
 # Recorded audio / scratch

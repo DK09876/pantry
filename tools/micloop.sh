@@ -5,7 +5,7 @@ set -euo pipefail
 
 SECS="${1:-6}"
 OUT="$HOME/development/recordings/loop_$(date +%Y%m%d_%H%M%S).wav"
-PY="$HOME/development/ai_env/bin/python"
+PY="$(dirname "$0")/../.venv/bin/python"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 mkdir -p "$(dirname "$OUT")"
 

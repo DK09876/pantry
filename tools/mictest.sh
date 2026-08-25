@@ -5,7 +5,7 @@ set -euo pipefail
 
 SECS="${1:-8}"
 OUT="${2:-$HOME/development/recordings/mic_$(date +%Y%m%d_%H%M%S).wav}"
-PY="$HOME/development/ai_env/bin/python"
+PY="$(dirname "$0")/../.venv/bin/python"
 mkdir -p "$(dirname "$OUT")"
 
 # Resolve the USB mic's card number by name, not a hardcoded index.
