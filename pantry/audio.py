@@ -67,36 +67,62 @@ def find_input_device(pa, match=config.MIC_MATCH):
     )
 
 
+class AudioStream:
+    """A 16 kHz mono capture stream that can be drained.
+
+    Draining matters: while the assistant is speaking nothing reads the mic,
+    so PortAudio's buffer fills with the assistant's own voice. Replaying that
+    into the wake detector makes it trigger on itself.
+    """
+
+    def __init__(self, pa, stream, capture_block):
+        self._pa = pa
+        self._stream = stream
+        self._capture_block = capture_block
+        self._decimate = Decimator()
+
+    def read(self):
+        raw = self._stream.read(self._capture_block, exception_on_overflow=False)
+        return self._decimate(np.frombuffer(raw, dtype=np.int16).astype(np.float64))
+
+    def blocks(self):
+        while True:
+            yield self.read()
+
+    def drain(self):
+        """Discard whatever accumulated while we were not listening."""
+        dropped = 0
+        while self._stream.get_read_available() >= self._capture_block:
+            self._stream.read(self._capture_block, exception_on_overflow=False)
+            dropped += 1
+        return dropped
+
+    def close(self):
+        self._stream.stop_stream()
+        self._stream.close()
+        self._pa.terminate()
+
+
 @contextlib.contextmanager
 def open_stream(block_samples=config.BLOCK_SAMPLES):
-    """Yield a generator of 16 kHz mono int16 blocks of `block_samples` each."""
+    """Yield an AudioStream of 16 kHz mono int16 blocks."""
     with suppress_c_stderr():
         pa = pyaudio.PyAudio()
+    index, name = find_input_device(pa)
+    print(f"[audio] in  {name}", file=sys.stderr)
+
+    capture_block = block_samples * config.DECIMATION
+    with suppress_c_stderr():
+        stream = pa.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=config.CAPTURE_RATE,
+            input=True,
+            input_device_index=index,
+            frames_per_buffer=capture_block,
+        )
+    audio = AudioStream(pa, stream, capture_block)
     try:
-        index, name = find_input_device(pa)
-        print(f"[audio] {name}", file=sys.stderr)
-
-        capture_block = block_samples * config.DECIMATION
-        with suppress_c_stderr():
-            stream = pa.open(
-                format=pyaudio.paInt16,
-                channels=1,
-                rate=config.CAPTURE_RATE,
-                input=True,
-                input_device_index=index,
-                frames_per_buffer=capture_block,
-            )
-        decimate = Decimator()
-
-        def blocks():
-            while True:
-                raw = stream.read(capture_block, exception_on_overflow=False)
-                yield decimate(np.frombuffer(raw, dtype=np.int16).astype(np.float64))
-
-        try:
-            yield blocks()
-        finally:
-            stream.stop_stream()
-            stream.close()
+        yield audio
     finally:
-        pa.terminate()
+        audio.close()

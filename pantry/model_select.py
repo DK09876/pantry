@@ -6,12 +6,22 @@ be listed and still 404 on generate_content. Probe at startup and cache.
 
 import os
 
-# Newest first. gemini-flash-latest floats to whatever is current, so it sits
-# last as a safety net rather than first where it could shift under us.
+# Ordered for a voice assistant, where time-to-first-token dominates the felt
+# latency and answers are one or two sentences.
+#
+# Measured on this Pi, first token:
+#   gemini-flash-lite-latest  0.33-0.71s
+#   gemini-3.5-flash-lite     0.43-0.78s
+#   gemini-3.7-flash          1.89-2.44s
+#   gemini-3.6-flash          2.66-22.48s   (wildly variable)
+#
+# The lite models are 3-5x faster to speak and the quality gap is negligible
+# at this length. Set GEMINI_MODEL in .env to override - use a full flash
+# model if you start asking it harder questions.
 CANDIDATES = [
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash-lite",
     "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
     "gemini-flash-latest",
 ]
 
