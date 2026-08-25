@@ -4,6 +4,7 @@ Google retires models without removing them from models.list(), so a name can
 be listed and still 404 on generate_content. Probe at startup and cache.
 """
 
+import logging
 import os
 
 # Ordered for a voice assistant, where time-to-first-token dominates the felt
@@ -41,7 +42,20 @@ def pick_model(client, candidates=None, verbose=True):
             print(f"[ model: {override} (from GEMINI_MODEL) ]")
         return _cached
 
-    for name in candidates or CANDIDATES:
+    # The probe uses models.generate_content, which logs an advisory about
+    # automatic function calling. Irrelevant here - we send no tools.
+    genai_log = logging.getLogger("google_genai.models")
+    previous = genai_log.level
+    genai_log.setLevel(logging.ERROR)
+    try:
+        return _probe(client, candidates or CANDIDATES, verbose)
+    finally:
+        genai_log.setLevel(previous)
+
+
+def _probe(client, candidates, verbose):
+    global _cached
+    for name in candidates:
         try:
             client.models.generate_content(model=name, contents="ping")
             _cached = name

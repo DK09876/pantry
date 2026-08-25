@@ -68,18 +68,26 @@ class Assistant:
     def _respond(self, text):
         """Stream the reply into speech, sentence by sentence."""
         started = time.monotonic()
+        first_token = None
         spoken = []
         try:
             with self.speaker.stream() as speech:
                 for chunk in self.brain.stream(self.chat, text):
+                    if first_token is None:
+                        first_token = time.monotonic() - started
                     spoken.append(chunk)
                     speech.feed(chunk)
+                generated = time.monotonic() - started
         except Exception as exc:
             print(f"[brain] {type(exc).__name__}: {exc}")
             self.speaker.say("Sorry, I could not reach the model just now.")
             return
-        print(f"[said] {''.join(spoken).strip()}   "
-              f"({time.monotonic() - started:.1f}s)")
+        # Total includes speaking the reply aloud, which is not latency you
+        # can tune away - report the model's own timings separately.
+        print(f"[said] {''.join(spoken).strip()}")
+        print(f"[timing] first token {first_token:.2f}s | "
+              f"generated {generated:.1f}s | "
+              f"total incl. speech {time.monotonic() - started:.1f}s")
 
     def _exchange(self, audio):
         """One wake-to-sleep conversation."""
