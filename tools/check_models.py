@@ -1,46 +1,86 @@
-import os
+#!/usr/bin/env python
+"""Which models does this key work with, and how fast are they right now?
+
+    tools/check_models.py            probe the candidate list
+    tools/check_models.py --all      probe every model the key can see
+
+Doubles as a health check: latency here is what the assistant will feel.
+"""
+
+import argparse
+import statistics
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Importing config loads .env, which must happen before genai.Client() looks
+# for GEMINI_API_KEY.
+from pantry import config  # noqa: F401
+from pantry.model_select import CANDIDATES
+
 from google import genai
-from google.genai.errors import APIError
+from google.genai import types
 
-client = genai.Client()
+ROUNDS = 3
 
-print("==================================================")
-print(" Fetching Available Models from Gemini API...")
-print("==================================================\n")
 
-working_models = []
+def probe(client, name):
+    times = []
+    for _ in range(ROUNDS):
+        started = time.monotonic()
+        try:
+            client.models.generate_content(model=name, contents="say ok")
+            times.append(time.monotonic() - started)
+        except Exception as exc:
+            return None, f"{type(exc).__name__}: {str(exc)[:60]}"
+    return times, None
 
-try:
-  # Query the API directly for all models associated with your API key
-  models = list(client.models.list())
 
-  print(f"Found {len(models)} model definitions.\n")
-  print("Testing 'generate_content' support on candidates:\n")
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--all", action="store_true",
+                        help="probe every visible model, not just candidates")
+    args = parser.parse_args()
 
-  for m in models:
-    # Extract clean model ID (e.g., 'gemini-2.0-flash' or 'models/gemini-2.0-flash')
-    model_id = m.name.replace("models/", "") if m.name else str(m)
+    # Generous ceiling: this tool is measuring latency, not enforcing it.
+    client = genai.Client(http_options=types.HttpOptions(timeout=60000))
 
-    # Test basic content generation
-    try:
-      response = client.models.generate_content(
-          model=model_id, contents="Reply with 'OK'"
-      )
-      print(f"  [SUCCESS] {model_id}")
-      working_models.append(model_id)
-    except APIError as e:
-      print(f"  [FAILED]  {model_id} -> {e.code} ({e.message})")
-    except Exception as e:
-      print(f"  [FAILED]  {model_id} -> {e}")
+    if args.all:
+        names = [m.name.replace("models/", "") for m in client.models.list()]
+        names = [n for n in names if "gemini" in n and "embedding" not in n]
+    else:
+        names = CANDIDATES
 
-except Exception as e:
-  print(f"Error querying API: {e}")
+    print(f"Probing {len(names)} model(s), {ROUNDS} requests each.\n")
+    healthy = []
+    for name in names:
+        times, error = probe(client, name)
+        if error:
+            print(f"  {name:<32} FAIL  {error}")
+            continue
+        median = statistics.median(times)
+        spread = f"{min(times):.2f}-{max(times):.2f}s"
+        flag = "" if median < 2 else "   << slow"
+        print(f"  {name:<32} ok    median {median:5.2f}s  ({spread}){flag}")
+        healthy.append((median, name))
 
-print("\n==================================================")
-if working_models:
-  print(" Working Models for your script:")
-  for wm in working_models:
-    print(f"  -> '{wm}'")
-else:
-  print(" No models succeeded. Check GEMINI_API_KEY permissions.")
-print("==================================================")
+    print()
+    if not healthy:
+        print("Nothing responded. Either the key is wrong or the API is down.")
+        return 1
+
+    healthy.sort()
+    best_median = healthy[0][0]
+    print(f"Fastest: {healthy[0][1]} at {best_median:.2f}s median")
+    if best_median > 2:
+        print("The API is degraded right now - normal here is well under 1s.")
+        print("The assistant will hit its 20s timeout often until this clears.")
+    else:
+        print("Latency looks normal.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
