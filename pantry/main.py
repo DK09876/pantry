@@ -20,16 +20,32 @@ from .vad import Endpointer
 from .wake import WakeDetector
 
 # Spoken phrases that end the exchange and go back to sleep.
-SLEEP_PHRASES = ("goodbye", "good bye", "never mind", "nevermind",
-                 "go to sleep", "that's all", "thats all", "stop listening")
+SLEEP_PHRASES = (
+    "goodbye", "good bye", "bye", "exit", "quit", "stop", "cancel",
+    "go away", "go to sleep", "never mind", "nevermind", "shut up",
+    "that's all", "thats all", "stop listening", "nothing else",
+)
 
 # How long to keep listening for a follow-up before going back to sleep.
 FOLLOWUP_TIMEOUT_S = float(os.environ.get("PANTRY_FOLLOWUP_TIMEOUT_S", 8))
 
 
 def _wants_sleep(text):
-    lowered = text.lower().strip(" .!?")
-    return any(phrase in lowered for phrase in SLEEP_PHRASES)
+    """True if the user is dismissing the assistant, not asking it something.
+
+    A bare "stop" ends the exchange, but "how do I stop a docker container"
+    is a question. Single words only count when they are the whole utterance;
+    multi-word phrases are matched anywhere.
+    """
+    lowered = text.lower().strip(" .!?").replace("'", "")
+    words = lowered.split()
+    for phrase in SLEEP_PHRASES:
+        if " " in phrase:
+            if phrase.replace("'", "") in lowered:
+                return True
+        elif len(words) <= 3 and phrase in words:
+            return True
+    return False
 
 
 class Assistant:
@@ -79,8 +95,12 @@ class Assistant:
                     speech.feed(chunk)
                 generated = time.monotonic() - started
         except Exception as exc:
+            code = getattr(exc, "code", None)
             print(f"[brain] {type(exc).__name__}: {exc}")
-            self.speaker.say("Sorry, I could not reach the model just now.")
+            if code == 504:
+                self.speaker.say("That took too long. Try asking again.")
+            else:
+                self.speaker.say("Sorry, I could not reach the model just now.")
             return
         # Total includes speaking the reply aloud, which is not latency you
         # can tune away - report the model's own timings separately.

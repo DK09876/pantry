@@ -29,6 +29,17 @@ DECIMATION = CAPTURE_RATE // TARGET_RATE
 BLOCK_SAMPLES = 512
 BLOCK_MS = BLOCK_SAMPLES / TARGET_RATE * 1000
 
+# --- Output --------------------------------------------------------------
+# The analog amp powers down when idle and swallows the start of whatever
+# plays next. Every clip gets this much leading silence so the amp is awake
+# before the audio that matters begins. The prototype worked around the same
+# problem by prefixing ". " to every sentence.
+LEAD_SILENCE_MS = _i("PANTRY_LEAD_SILENCE_MS", 300)
+
+# Hard ceiling on a single model request. A voice assistant that hangs for
+# 30 seconds is worse than one that admits it failed.
+LLM_TIMEOUT_S = _f("PANTRY_LLM_TIMEOUT_S", 20.0)
+
 # --- Wake word -----------------------------------------------------------
 WAKE_MODEL = os.environ.get("PANTRY_WAKE_MODEL", "hey_jarvis_v0.1")
 WAKE_THRESHOLD = _f("PANTRY_WAKE_THRESHOLD", 0.5)

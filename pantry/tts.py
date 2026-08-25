@@ -21,6 +21,8 @@ from pathlib import Path
 import numpy as np
 from gtts import gTTS
 
+from . import config
+
 # Split after . ! ? when followed by a space, so decimals and abbreviations
 # mostly survive intact.
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
@@ -60,17 +62,31 @@ class Speaker:
         path = self._tmp / "chime.wav"
         sr = 16000
         tone = []
-        for freq, ms in ((880, 90), (1320, 110)):
+        for freq, ms in ((880, 120), (1320, 160)):
             n = int(sr * ms / 1000)
             t = np.arange(n) / sr
             env = np.minimum(1.0, np.minimum(t * 60, (ms / 1000 - t) * 60))
-            tone.append(np.sin(2 * np.pi * freq * t) * env * 0.25)
-        samples = (np.concatenate(tone) * 32767).astype(np.int16)
+            tone.append(np.sin(2 * np.pi * freq * t) * env * 0.5)
+        lead = np.zeros(int(sr * config.LEAD_SILENCE_MS / 1000))
+        samples = (np.concatenate([lead] + tone) * 32767).astype(np.int16)
         with wave.open(str(path), "w") as w:
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(sr)
             w.writeframes(samples.tobytes())
+        return path
+
+    @staticmethod
+    def _pad(path):
+        """Prepend silence so the amp is awake before the words begin."""
+        with wave.open(str(path)) as w:
+            params = w.getparams()
+            frames = w.readframes(w.getnframes())
+        n = int(params.framerate * config.LEAD_SILENCE_MS / 1000)
+        lead = bytes(n * params.sampwidth * params.nchannels)
+        with wave.open(str(path), "w") as w:
+            w.setparams(params)
+            w.writeframes(lead + frames)
         return path
 
     def chime(self):
@@ -85,7 +101,7 @@ class Speaker:
         subprocess.run(["mpg123", "-q", "-w", str(wav), str(mp3)],
                        stderr=subprocess.DEVNULL)
         mp3.unlink(missing_ok=True)
-        return wav
+        return self._pad(wav)
 
     def say(self, text):
         """Speak one string, blocking until finished."""
