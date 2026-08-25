@@ -7,8 +7,14 @@ streaming to the cloud around the clock.
 
 import os
 import time
+import warnings
 
 import numpy as np
+
+# onnxruntime probes for CUDA on every model load and warns when it is
+# absent, which it always is on a Pi.
+warnings.filterwarnings("ignore", message=".*CUDAExecutionProvider.*")
+
 import openwakeword
 from openwakeword.model import Model
 
@@ -42,6 +48,7 @@ class WakeDetector:
     def __init__(self, name=config.WAKE_MODEL, threshold=config.WAKE_THRESHOLD,
                  refractory_s=config.WAKE_REFRACTORY_S):
         self.name = name
+        self.label = name.rsplit("_v", 1)[0].replace("_", " ")
         self.threshold = threshold
         self.refractory_s = refractory_s
         self.model = Model(wakeword_model_paths=[model_path(name)])

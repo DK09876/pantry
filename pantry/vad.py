@@ -46,6 +46,10 @@ class Endpointer:
         self._silence_run = 0
         self._started = time.monotonic()
         self.last_prob = 0.0
+        # Timestamps so callers can separate the user's reaction time from
+        # the endpointer's own latency. Conflating them hides which is slow.
+        self.speech_started_at = None
+        self.speech_ended_at = None
 
     def process(self, block):
         """Return the utterance as int16 audio once complete, else None.
@@ -81,9 +85,14 @@ class Endpointer:
                 if self._speech_run >= self.start_chunks:
                     self.state = self.SPEAKING
                     self._silence_run = 0
+                    self.speech_started_at = time.monotonic()
             else:
                 self._audio.append(chunk)
-                self._silence_run = 0 if speech else self._silence_run + 1
+                if speech:
+                    self._silence_run = 0
+                    self.speech_ended_at = time.monotonic()
+                else:
+                    self._silence_run += 1
                 if self._silence_run >= self.silence_chunks:
                     self.state = self.DONE
                     return self._collected()

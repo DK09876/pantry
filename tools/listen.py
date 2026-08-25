@@ -78,9 +78,13 @@ def capture(blocks, wake, quiet=False):
 
     seconds = len(audio) / config.TARGET_RATE
     path = save(audio)
-    print(f"  [captured] {seconds:.1f}s of speech, "
-          f"endpointed {t_end - t_wake - seconds:.1f}s after you stopped")
-    print(f"  [level] {dbfs(audio):.1f} dBFS")
+    # Report the phases separately: your reaction time is not system latency.
+    reaction = (ep.speech_started_at - t_wake) if ep.speech_started_at else 0.0
+    endpoint = (t_end - ep.speech_ended_at) if ep.speech_ended_at else 0.0
+    print(f"  [captured] {seconds:.1f}s of audio, {dbfs(audio):.1f} dBFS")
+    print(f"  [timing] you started after {reaction:.1f}s | "
+          f"endpoint fired {endpoint * 1000:.0f}ms after you stopped "
+          f"(target {config.VAD_SILENCE_MS}ms)")
     print(f"  [saved] {path}")
     print(f"  play: aplay -D plughw:2,0 {path}")
     return path
