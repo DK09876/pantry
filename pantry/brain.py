@@ -6,6 +6,8 @@ start on the first sentence while the rest is still being written.
 
 import time
 
+import httpx
+
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError, ServerError
@@ -65,6 +67,14 @@ class Brain:
                     if chunk.text:
                         yield chunk.text
                 return
+            except httpx.TimeoutException:
+                # The deadline fired inside the transport, so this never
+                # became an APIError. Same situation as a 504 and worth the
+                # same retry.
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
             except (APIError, ServerError) as exc:
                 # 503 means overloaded, 504 means our own deadline fired.
                 # Both are worth one more attempt.

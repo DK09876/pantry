@@ -30,6 +30,20 @@ from . import config
 # mostly survive intact.
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
+# Piper reads a thousands separator aloud: 29,031 becomes "twenty-nine
+# thousand, oh three one". Strip the commas and it says the number.
+THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
+
+# Markdown emphasis reads as stray punctuation if the model slips any in.
+MARKDOWN = re.compile(r"[*_`#]+")
+
+
+def for_speech(text):
+    """Tidy model output into something a speech engine reads correctly."""
+    text = THOUSANDS.sub("", text)
+    text = MARKDOWN.sub("", text)
+    return text.strip()
+
 # Don't fire a network round trip for a two-word fragment; wait for more.
 MIN_SENTENCE_CHARS = 25
 
@@ -140,7 +154,8 @@ class Speaker:
         """Render text to a playable wav, on-device."""
         wav_path = self._tmp / f"seg{index}.wav"
         with wave.open(str(wav_path), "wb") as wav:
-            self._voice.synthesize_wav(text, wav, syn_config=self._synthesis)
+            self._voice.synthesize_wav(for_speech(text), wav,
+                                       syn_config=self._synthesis)
         return self._pad(wav_path)
 
     def say(self, text):
