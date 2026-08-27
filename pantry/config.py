@@ -30,11 +30,16 @@ BLOCK_SAMPLES = 512
 BLOCK_MS = BLOCK_SAMPLES / TARGET_RATE * 1000
 
 # --- Output --------------------------------------------------------------
-# The analog amp powers down when idle and swallows the start of whatever
-# plays next. Every clip gets this much leading silence so the amp is awake
-# before the audio that matters begins. The prototype worked around the same
-# problem by prefixing ". " to every sentence.
-LEAD_SILENCE_MS = _i("PANTRY_LEAD_SILENCE_MS", 300)
+# Leading silence prepended to every clip.
+#
+# The Pi's analog amp powers down when idle and swallows the start of
+# whatever plays next: a beep test showed 0ms inaudible and 150ms upward
+# fine, so that setup needed 300. A USB speaker does not sleep - the same
+# test passed at 0ms even after a 40 second idle - so this is off, and the
+# 300ms comes off every reply.
+#
+# Raise it back to 300 if you go back to the 3.5mm jack.
+LEAD_SILENCE_MS = _i("PANTRY_LEAD_SILENCE_MS", 0)
 
 # Hard ceiling on a single model request. A voice assistant that hangs for
 # 30 seconds is worse than one that admits it failed.
