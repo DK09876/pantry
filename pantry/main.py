@@ -10,6 +10,8 @@ import os
 import sys
 import time
 
+import httpx
+
 from . import config
 from .audio import open_stream
 from .brain import Brain
@@ -82,32 +84,29 @@ class Assistant:
         return text
 
     def _respond(self, text):
-        """Stream the reply into speech, sentence by sentence."""
+        """Answer, running any tools the model decides to call."""
         started = time.monotonic()
-        first_token = None
-        spoken = []
+        print("[thinking]", end="", flush=True)
         try:
-            with self.speaker.stream() as speech:
-                for chunk in self.brain.stream(self.chat, text):
-                    if first_token is None:
-                        first_token = time.monotonic() - started
-                    spoken.append(chunk)
-                    speech.feed(chunk)
-                generated = time.monotonic() - started
+            reply = self.brain.send(self.chat, text)
+            generated = time.monotonic() - started
         except Exception as exc:
-            code = getattr(exc, "code", None)
+            print()
             print(f"[brain] {type(exc).__name__}: {exc}")
-            if code == 504:
+            if isinstance(exc, httpx.TimeoutException) or getattr(exc, "code", None) == 504:
                 self.speaker.say("That took too long. Try asking again.")
             else:
                 self.speaker.say("Sorry, I could not reach the model just now.")
             return
-        # Total includes speaking the reply aloud, which is not latency you
-        # can tune away - report the model's own timings separately.
-        print(f"[said] {''.join(spoken).strip()}")
-        print(f"[timing] first token {first_token:.2f}s | "
-              f"generated {generated:.1f}s | "
-              f"total incl. speech {time.monotonic() - started:.1f}s")
+
+        print(f" -> [said] {reply}")
+        print(f"[timing] model {generated:.1f}s", flush=True)
+        if not reply:
+            # A tool ran but the model returned nothing to say.
+            self.speaker.say("Done.")
+            return
+        self.speaker.say(reply)
+        print(f"[timing] total incl. speech {time.monotonic() - started:.1f}s")
 
     def _exchange(self, audio):
         """One wake-to-sleep conversation."""

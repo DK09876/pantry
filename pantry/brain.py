@@ -6,7 +6,15 @@ start on the first sentence while the rest is still being written.
 
 import time
 
+import logging
+import warnings
+
 import httpx
+
+# The SDK warns whenever a response carries a function_call part alongside
+# text. That is the normal shape of a tool call, not a problem.
+warnings.filterwarnings("ignore", message=".*non-text parts.*")
+logging.getLogger("google_genai.types").setLevel(logging.ERROR)
 
 from google import genai
 from google.genai import types
@@ -54,6 +62,32 @@ class Brain:
         if tools:
             config["tools"] = tools
         return self.client.chats.create(model=self.model, config=config)
+
+    def send(self, chat, text, max_retries=3):
+        """Return the full reply, executing any tool calls along the way.
+
+        Not streamed. Automatic function calling is only properly supported
+        on send_message: the streaming variant emits function_call parts with
+        no text, which the SDK warns about and which stall a text-only
+        consumer. Responses here are one or two sentences and Piper
+        synthesises locally in a fraction of realtime, so streaming bought
+        very little and cost reliability.
+        """
+        for attempt in range(max_retries):
+            try:
+                response = chat.send_message(text)
+                return (response.text or "").strip()
+            except httpx.TimeoutException:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
+            except (APIError, ServerError) as exc:
+                code = getattr(exc, "code", None)
+                if code in (503, 504) and attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
 
     def stream(self, chat, text, max_retries=3):
         """Yield reply text as it arrives.
