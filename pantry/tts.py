@@ -9,6 +9,7 @@ gTTS is a placeholder. Piper replaces it in phase 3 and slots in behind the
 same Speaker interface - only `_synthesise` changes.
 """
 
+import os
 import queue
 import re
 import subprocess
@@ -31,16 +32,40 @@ SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 MIN_SENTENCE_CHARS = 25
 
 
-def find_output_card(match="Headphones"):
-    """Resolve the speaker's ALSA card by name; indices move between boots."""
+def find_output_card(match=None):
+    """Resolve the speaker's ALSA card by name.
+
+    Card numbers move when devices are plugged or unplugged, so the device is
+    matched by name. A USB speaker is preferred over the Pi's own 3.5mm jack:
+    the onboard DAC is noisy, and if a USB speaker is present it is almost
+    certainly the one that is connected to something.
+
+    PANTRY_SPEAKER_MATCH overrides the search entirely.
+    """
     try:
-        out = subprocess.run(["aplay", "-l"], capture_output=True, text=True).stdout
+        listing = subprocess.run(["aplay", "-l"], capture_output=True, text=True).stdout
     except FileNotFoundError:
         return None
-    for line in out.splitlines():
-        if line.startswith("card") and match.lower() in line.lower():
-            return line.split(":")[0].split()[1]
-    return None
+
+    cards = []
+    for line in listing.splitlines():
+        if line.startswith("card"):
+            cards.append((line.split(":")[0].split()[1], line))
+
+    override = match or os.environ.get("PANTRY_SPEAKER_MATCH")
+    if override:
+        for number, line in cards:
+            if override.lower() in line.lower():
+                return number
+        return None
+
+    # HDMI is almost never what is wanted on a headless box.
+    candidates = [(n, l) for n, l in cards if "hdmi" not in l.lower()]
+    for wanted in ("usb", "headphones"):
+        for number, line in candidates:
+            if wanted in line.lower():
+                return number
+    return candidates[0][0] if candidates else None
 
 
 class Speaker:
