@@ -5,8 +5,9 @@ model is still generating, so the first words are spoken before the last ones
 exist. That overlap is most of the difference between feeling responsive and
 feeling slow.
 
-gTTS is a placeholder. Piper replaces it in phase 3 and slots in behind the
-same Speaker interface - only `_synthesise` changes.
+Speech is synthesised on-device by Piper. The model is loaded once at
+startup, which takes a few seconds; doing it lazily would put that delay in
+front of the first thing the assistant ever says.
 """
 
 import os
@@ -15,12 +16,13 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import threading
 import wave
 from pathlib import Path
 
 import numpy as np
-from gtts import gTTS
+from piper import PiperVoice, SynthesisConfig
 
 from . import config
 
@@ -69,12 +71,28 @@ def find_output_card(match=None):
 
 
 class Speaker:
-    def __init__(self, card=None):
+    def __init__(self, card=None, voice_path=None):
         self.card = card or find_output_card()
         self.device = f"plughw:{self.card},0" if self.card else "default"
         print(f"[audio] out {self.device}", file=sys.stderr)
         self._tmp = Path(tempfile.mkdtemp(prefix="pantry-tts-"))
         self._chime = self._make_chime()
+
+        path = voice_path or config.PIPER_VOICE
+        if not Path(path).exists():
+            raise FileNotFoundError(
+                f"No Piper voice at {path}. Run scripts/get_voice.sh, or set "
+                "PANTRY_PIPER_VOICE."
+            )
+        started = time.monotonic()
+        self._voice = PiperVoice.load(path)
+        self._synthesis = SynthesisConfig(
+            length_scale=config.PIPER_LENGTH_SCALE,
+            noise_scale=config.PIPER_NOISE_SCALE,
+            noise_w_scale=config.PIPER_NOISE_W_SCALE,
+        )
+        print(f"[audio] voice {Path(path).stem} "
+              f"({time.monotonic() - started:.1f}s)", file=sys.stderr)
 
     # --- playback --------------------------------------------------------
     def _play_wav(self, path):
@@ -119,14 +137,11 @@ class Speaker:
 
     # --- synthesis -------------------------------------------------------
     def _synthesise(self, text, index):
-        """Render text to a playable wav. Piper replaces this in phase 3."""
-        mp3 = self._tmp / f"seg{index}.mp3"
-        wav = self._tmp / f"seg{index}.wav"
-        gTTS(text=text, lang="en").save(str(mp3))
-        subprocess.run(["mpg123", "-q", "-w", str(wav), str(mp3)],
-                       stderr=subprocess.DEVNULL)
-        mp3.unlink(missing_ok=True)
-        return self._pad(wav)
+        """Render text to a playable wav, on-device."""
+        wav_path = self._tmp / f"seg{index}.wav"
+        with wave.open(str(wav_path), "wb") as wav:
+            self._voice.synthesize_wav(text, wav, syn_config=self._synthesis)
+        return self._pad(wav_path)
 
     def say(self, text):
         """Speak one string, blocking until finished."""

@@ -45,6 +45,25 @@ LEAD_SILENCE_MS = _i("PANTRY_LEAD_SILENCE_MS", 0)
 # 30 seconds is worse than one that admits it failed.
 LLM_TIMEOUT_S = _f("PANTRY_LLM_TIMEOUT_S", 20.0)
 
+# --- Speech output ------------------------------------------------------
+# Piper runs on-device: no network call per reply, so speech does not depend
+# on a cloud service being healthy, and it starts in about a third of the
+# time the audio takes to play.
+#
+# The 'high' quality models are better but synthesise at ~2x slower than
+# realtime on a Pi 4, which stalls every reply. 'medium' is the usable tier.
+PIPER_VOICE = os.environ.get(
+    "PANTRY_PIPER_VOICE",
+    str(ROOT / "models" / "piper" / "en_US-ryan-medium.onnx"),
+)
+
+# Piper's defaults are flat, and flat timing is most of what reads as
+# robotic. length_scale slows delivery slightly; noise_w_scale varies
+# phoneme duration; noise_scale varies pitch and energy.
+PIPER_LENGTH_SCALE = _f("PANTRY_PIPER_LENGTH_SCALE", 1.15)
+PIPER_NOISE_SCALE = _f("PANTRY_PIPER_NOISE_SCALE", 1.0)
+PIPER_NOISE_W_SCALE = _f("PANTRY_PIPER_NOISE_W_SCALE", 1.4)
+
 # --- Wake word -----------------------------------------------------------
 WAKE_MODEL = os.environ.get("PANTRY_WAKE_MODEL", "hey_jarvis_v0.1")
 WAKE_THRESHOLD = _f("PANTRY_WAKE_THRESHOLD", 0.5)
