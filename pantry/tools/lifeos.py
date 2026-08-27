@@ -14,6 +14,11 @@ import urllib.request
 import uuid
 from datetime import date, datetime, timedelta
 
+# Importing config loads .env. These module-level settings read os.environ at
+# import time, so without this they depend on some other module having loaded
+# .env first - which happened to be true, but silently.
+from .. import config  # noqa: F401
+
 BASE_URL = os.environ.get("PANTRY_LIFEOS_URL", "http://localhost:3000")
 PROFILE = os.environ.get("PANTRY_LIFEOS_PROFILE", "dk")
 TIMEOUT = float(os.environ.get("PANTRY_LIFEOS_TIMEOUT_S", 8))
