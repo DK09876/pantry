@@ -14,6 +14,7 @@ from google.genai.errors import APIError, ServerError
 # for GEMINI_API_KEY.
 from . import config  # noqa: F401
 from .model_select import pick_model
+from .tools import for_names
 
 
 class Brain:
@@ -35,14 +36,22 @@ class Brain:
         self.temperature = temperature
 
     def session(self, mode):
-        """Start a conversation scoped to a mode."""
-        return self.client.chats.create(
-            model=self.model,
-            config={
-                "temperature": self.temperature,
-                "system_instruction": mode.system_prompt,
-            },
-        )
+        """Start a conversation scoped to a mode.
+
+        A mode's tools are handed to the model as plain Python functions; the
+        SDK derives the parameter schema from their type hints and reads the
+        docstrings to decide when to call them. Calls are executed
+        automatically and the result fed back, so send_message returns text
+        that already reflects whatever the tools did.
+        """
+        config = {
+            "temperature": self.temperature,
+            "system_instruction": mode.system_prompt,
+        }
+        tools = for_names(mode.tools)
+        if tools:
+            config["tools"] = tools
+        return self.client.chats.create(model=self.model, config=config)
 
     def stream(self, chat, text, max_retries=3):
         """Yield reply text as it arrives.
