@@ -12,7 +12,7 @@ import json
 import os
 import urllib.request
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 # Importing config loads .env. These module-level settings read os.environ at
 # import time, so without this they depend on some other module having loaded
@@ -86,7 +86,7 @@ def add_task(task_name: str, due_date: str = "", domain: str = "",
     payload = _read()
     matched = _resolve_domain(domain, _live(payload.get("domains", [])))
     resolved_due = _resolve_due(due_date)
-    now = datetime.utcnow().isoformat() + "Z"
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
     _write("tasks", [{
         "id": str(uuid.uuid4()),
@@ -160,7 +160,7 @@ def complete_task(task_name: str) -> str:
 
     match["status"] = "Done"
     match["doneDate"] = date.today().isoformat()
-    match["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+    match["updatedAt"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     _write("tasks", [match])
     return "Marked " + match["taskName"] + " as done."
 
@@ -172,7 +172,7 @@ def add_domain(name: str, priority: str = "2 - Important") -> str:
         name: What to call the area.
         priority: 1 - Critical, 2 - Important, or 3 - Maintenance.
     """
-    now = datetime.utcnow().isoformat() + "Z"
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     _write("domains", [{
         "id": str(uuid.uuid4()),
         "name": name,

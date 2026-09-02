@@ -66,6 +66,15 @@ tools/listen.py --monitor  # live wake word scores, for tuning the threshold
 tools/check_models.py    # which models this key can reach, and how fast
 ```
 
+## Tests
+
+```bash
+.venv/bin/python -m pytest
+```
+
+68 tests, no audio hardware or network required: the LifeOS API is stubbed
+and nothing constructs a `Speaker`. CI runs them on every pull request.
+
 ## Hardware notes
 
 ALSA's `default` device is broken on this box (error 524), so cards are
