@@ -66,9 +66,9 @@ Measured on the Pi:
 |---|---|
 | Wake word | ~0.1 s, 0.000 idle vs 0.96+ on detection |
 | Endpointing | 700 ms of silence ends an utterance |
-| Speech to text | 0.3â€“0.6 s |
-| Gemini | 0.5â€“2 s healthy, 10â€“25 s when degraded |
-| Piper | 0.32 Ã— realtime |
+| Speech to text | 0.3–0.6 s |
+| Gemini | 0.5–2 s healthy, 10–25 s when degraded |
+| Piper | 0.32 × realtime |
 
 The microphone rejects 16 kHz, so audio is captured at 48 kHz and decimated
 with an anti-aliasing filter. Without one, everything above 8 kHz folds back
@@ -77,7 +77,7 @@ into the speech band, and the microphone's noise is broadband.
 ## Modes and tools
 
 A mode is scoped context: a system prompt plus which application toolsets are
-in scope. Identity â€” whose data a tool touches â€” is a separate axis, so
+in scope. Identity — whose data a tool touches — is a separate axis, so
 `add_task` is written once and works for any profile.
 
 ```mermaid
@@ -120,7 +120,7 @@ sequenceDiagram
     P->>P: VAD ends utterance
     P->>Gm: transcript + tool schemas
     Gm->>P: call add_task(...)
-    P->>L: POST /api/data?profile=â€¦
+    P->>L: POST /api/data?profile=…
     L->>L: write to SQLite
     L->>P: ok
     P->>Gm: tool result
@@ -144,8 +144,8 @@ locally, so the microphone stays on the Pi until the wake word fires.
 
 **Piper over a cloud voice.** Removes a network call from every reply, and
 the demo does not depend on a speech service being healthy. The `high`
-quality models sound better but synthesise at roughly 2Ã— slower than
-realtime on a Pi 4, which stalls every reply â€” so `medium` with the
+quality models sound better but synthesise at roughly 2× slower than
+realtime on a Pi 4, which stalls every reply — so `medium` with the
 expressiveness parameters raised is the usable tier.
 
 **Whole replies, not streamed.** Streaming emits `function_call` parts with
