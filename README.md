@@ -7,7 +7,7 @@ the apps running alongside it. Today that is [LifeOS](https://github.com/DK09876
 a task tracker on the same Pi; the design goal is that adding a second app is
 a new module and one registry entry, with no change to the voice loop.
 
-**[Architecture and diagrams â†’](docs/architecture.md)**
+**[Architecture and diagrams →](docs/architecture.md)**
 
 ## What it does
 
@@ -22,6 +22,12 @@ you: "what's the weather?"                says it cannot look that up
 
 The last one matters: with no weather tool it declines rather than inventing
 a number.
+
+Voice is a capture inbox. Speech cannot supply an effort estimate or judge
+urgency, so a spoken task lands in LifeOS as *Needs Details* for you to triage
+rather than arriving on the planning board scored as though it had been
+thought about. It carries whatever you did say — the due date, the domain, the
+priority.
 
 ## Pipeline
 
@@ -41,7 +47,7 @@ Grouped by the app that owns them; a mode declares which sets are in scope.
 
 | Tool | Does |
 |---|---|
-| `add_task` | name, optional due date, domain, priority |
+| `add_task` | name, optional due date, domain, priority — lands in triage |
 | `list_tasks` | today / week / all, ranked by score |
 | `complete_task` | loose name match |
 | `add_domain` | new life area |
@@ -78,7 +84,7 @@ and nothing constructs a `Speaker`. CI runs them on every pull request.
 ## Hardware notes
 
 ALSA's `default` device is broken on this box (error 524), so cards are
-addressed explicitly and resolved **by name** â€” indices move between boots and
+addressed explicitly and resolved **by name** — indices move between boots and
 USB ports. The microphone rejects 16 kHz, so capture runs at 48 kHz and is
 decimated 3:1 with an anti-aliasing filter.
 

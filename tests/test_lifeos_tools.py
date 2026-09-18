@@ -16,10 +16,26 @@ def test_adds_a_task_with_only_a_name(lifeos):
     assert len(lifeos.fake.tasks) == 1
     task = lifeos.fake.tasks[0]
     assert task["taskName"] == "buy milk"
-    assert task["status"] == "Backlog"
+    # A name alone is not enough to act on, so it lands in triage rather than
+    # the backlog - the same rule the web app applies. Claiming "Backlog" here
+    # put unexamined tasks straight into the planning board.
+    assert task["status"] == "Needs Details"
     assert task["dueDate"] is None
     assert task["domainId"] is None
     assert "buy milk" in reply
+
+
+def test_a_fully_specified_task_goes_straight_to_the_backlog(lifeos):
+    lifeos.fake.add_domain("Health")
+    lifeos.add_task("buy milk", domain="Health", priority="2 - High")
+    task = lifeos.fake.tasks[0]
+    # Voice cannot supply urgency or action points, so even this stays in
+    # triage; the assertion records which fields are still missing.
+    assert task["taskPriority"] == "2 - High"
+    assert task["domainId"] is not None
+    assert task["urgency"] is None
+    assert task["actionPoints"] is None
+    assert task["status"] == "Needs Details"
 
 
 class TestDueDates:
@@ -143,7 +159,15 @@ class TestCompleteTask:
         lifeos.fake.add_task("buy milk")
         reply = lifeos.complete_task("buy milk")
         assert lifeos.fake.tasks[0]["status"] == "Done"
-        assert lifeos.fake.tasks[0]["doneDate"] == date.today().isoformat()
+        # A full timestamp, not a bare date: the app parses a 10-character
+        # value as UTC midnight, which reads as the previous day here, so a
+        # task finished today was reported as finished yesterday.
+        done = lifeos.fake.tasks[0]["doneDate"]
+        assert done.startswith(date.today().isoformat())
+        assert done.endswith("Z") and len(done) > 10
+        # Recurrence keys off lastCompleted; without it a recurring task
+        # completed by voice never came back.
+        assert lifeos.fake.tasks[0]["lastCompleted"] == done
         assert "buy milk" in reply
 
     def test_partial_name(self, lifeos):

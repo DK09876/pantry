@@ -61,6 +61,26 @@ def _resolve_domain(name, domains):
     return None
 
 
+def _task_status(task):
+    """Mirror of isTaskComplete in LifeOS lib/hooks.ts.
+
+    The web app promotes a task out of Needs Details only once priority,
+    urgency, domain and action points are all set. Hard-coding "Backlog" here
+    let voice-added tasks skip that triage, so they arrived scored as if they
+    had been thought about when they had not.
+    """
+    ready = all((
+        (task.get("taskName") or "").strip(),
+        task.get("taskPriority"),
+        task.get("urgency"),
+        task.get("domainId"),
+        task.get("actionPoints"),
+    ))
+    if not ready:
+        return "Needs Details"
+    return "Planned" if task.get("plannedDate") else "Backlog"
+
+
 def _resolve_due(due_date):
     if not due_date:
         return ""
@@ -88,12 +108,13 @@ def add_task(task_name: str, due_date: str = "", domain: str = "",
     resolved_due = _resolve_due(due_date)
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
-    _write("tasks", [{
+    task = {
         "id": str(uuid.uuid4()),
         "taskName": task_name,
-        "status": "Backlog",
-        "taskPriority": priority,
-        "urgency": "3 - Normal",
+        "taskPriority": priority or None,
+        # Not inferable from a spoken request; left unset so the task shows up
+        # for triage rather than claiming a judgement nobody made.
+        "urgency": None,
         "taskScore": 0,
         "importanceScore": 0,
         "urgencyScore": 0,
@@ -110,7 +131,9 @@ def add_task(task_name: str, due_date: str = "", domain: str = "",
         "createdAt": now,
         "updatedAt": now,
         "deletedAt": None,
-    }])
+    }
+    task["status"] = _task_status(task)
+    _write("tasks", [task])
 
     where = " in " + matched["name"] if matched else ""
     when = ", due " + resolved_due if resolved_due else ""
@@ -158,9 +181,16 @@ def complete_task(task_name: str) -> str:
     if match is None:
         return "I could not find a task matching " + task_name + "."
 
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     match["status"] = "Done"
-    match["doneDate"] = date.today().isoformat()
-    match["updatedAt"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    # A full timestamp, not date.today(): the app reads a bare YYYY-MM-DD as
+    # UTC midnight, which is the previous evening here, so a task finished
+    # today was reported as finished yesterday.
+    match["doneDate"] = now
+    # Recurrence keys off lastCompleted; without it a recurring task completed
+    # by voice never came back.
+    match["lastCompleted"] = now
+    match["updatedAt"] = now
     _write("tasks", [match])
     return "Marked " + match["taskName"] + " as done."
 
