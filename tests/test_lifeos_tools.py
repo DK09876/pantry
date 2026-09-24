@@ -230,3 +230,45 @@ def test_every_tool_returns_a_nonempty_string(lifeos):
         lifeos.list_domains(),
     ):
         assert isinstance(result, str) and result
+
+
+class TestListsAndNotes:
+    """Shopping lists and things to remember are not tasks."""
+
+    def test_creates_the_shopping_list_on_first_use(self, lifeos):
+        reply = lifeos.add_to_list("milk, eggs")
+        [note] = lifeos.fake.data["notes"]
+        assert note["kind"] == "list" and note["title"] == "Shopping"
+        assert [i["text"] for i in note["items"]] == ["milk", "eggs"]
+        assert lifeos.fake.tasks == []
+        assert "milk" in reply
+
+    def test_adds_to_an_existing_list_by_loose_name(self, lifeos):
+        lifeos.add_to_list("milk", list_name="Groceries")
+        lifeos.add_to_list("bread", list_name="grocer")
+        [note] = lifeos.fake.data["notes"]
+        assert [i["text"] for i in note["items"]] == ["milk", "bread"]
+
+    def test_reads_only_unticked_items(self, lifeos):
+        lifeos.add_to_list("milk, eggs")
+        lifeos.fake.data["notes"][0]["items"][0]["done"] = True
+        assert lifeos.read_list() == "Shopping: eggs."
+
+    def test_saves_a_note(self, lifeos):
+        lifeos.add_note("The boiler code is 4471")
+        [note] = lifeos.fake.data["notes"]
+        assert note["kind"] == "note" and note["body"] == "The boiler code is 4471"
+
+
+def test_completing_logs_the_day(lifeos):
+    lifeos.fake.add_task("water plants", recurrence="Biweekly", completions=["2026-01-01"])
+    lifeos.complete_task("water plants")
+    assert lifeos.fake.tasks[0]["completions"] == ["2026-01-01", date.today().isoformat()]
+
+
+def test_today_includes_planned_work_and_skips_blocked(lifeos):
+    today = date.today().isoformat()
+    lifeos.fake.add_task("planned", plannedDate=today)
+    lifeos.fake.add_task("blocked", status="Blocked", dueDate=today)
+    reply = lifeos.list_tasks("today")
+    assert "planned" in reply and "blocked" not in reply

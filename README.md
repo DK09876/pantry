@@ -48,10 +48,13 @@ Grouped by the app that owns them; a mode declares which sets are in scope.
 | Tool | Does |
 |---|---|
 | `add_task` | name, optional due date, domain, priority — lands in triage |
-| `list_tasks` | today / week / all, ranked by score |
-| `complete_task` | loose name match |
+| `list_tasks` | today (planned or due) / week / all, ranked by score |
+| `complete_task` | loose name match; logs the day it was done |
 | `add_domain` | new life area |
 | `list_domains` | reads them back |
+| `add_to_list` | item(s) onto a checklist, Shopping by default; creates the list |
+| `read_list` | what is still unticked on a list |
+| `add_note` | something to remember, not a task |
 
 ## Running it
 

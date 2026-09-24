@@ -19,7 +19,7 @@ class FakeLifeOS:
     def __init__(self):
         self.data = {
             "tasks": [], "domains": [], "habits": [],
-            "events": [], "projects": [], "filterPresets": [],
+            "events": [], "projects": [], "filterPresets": [], "notes": [],
             "preferences": {},
         }
         self.writes = []
