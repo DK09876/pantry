@@ -154,8 +154,13 @@ def list_tasks(when: str = "all", limit: int = 5) -> str:
     scope = (when or "all").strip().lower()
     if scope in ("today", "week"):
         horizon = date.today() + timedelta(days=7 if scope == "week" else 0)
-        open_tasks = [t for t in open_tasks if t.get("dueDate")
-                      and date.fromisoformat(t["dueDate"]) <= horizon]
+        # Planned for the day counts as much as due on it - "what do I have
+        # today" means the plan, not only the deadlines. Blocked work is not
+        # the user's to do, so it is left out, as the app does.
+        def on(field):
+            return lambda t: t.get(field) and date.fromisoformat(t[field]) <= horizon
+        open_tasks = [t for t in open_tasks if t.get("status") != "Blocked"
+                      and (on("dueDate")(t) or on("plannedDate")(t))]
 
     if not open_tasks:
         return "No tasks." if scope == "all" else "Nothing due " + scope + "."
@@ -190,6 +195,10 @@ def complete_task(task_name: str) -> str:
     # Recurrence keys off lastCompleted; without it a recurring task completed
     # by voice never came back.
     match["lastCompleted"] = now
+    # The app keeps a log of completion days, which is what survives a
+    # recurring task coming back for its next occurrence.
+    today = date.today().isoformat()
+    match["completions"] = sorted(set((match.get("completions") or []) + [today]))
     match["updatedAt"] = now
     _write("tasks", [match])
     return "Marked " + match["taskName"] + " as done."
@@ -223,4 +232,77 @@ def list_domains() -> str:
     return "Areas: " + ", ".join(d.get("name", "unnamed") for d in domains) + "."
 
 
-TOOLS = (add_task, list_tasks, complete_task, add_domain, list_domains)
+def _find_list(notes, name):
+    wanted = (name or "").strip().lower()
+    lists = [n for n in notes if n.get("kind") == "list"]
+    exact = next((n for n in lists if n.get("title", "").lower() == wanted), None)
+    return exact or next((n for n in lists if wanted and wanted in n.get("title", "").lower()), None)
+
+
+def add_to_list(item: str, list_name: str = "Shopping") -> str:
+    """Add an item to a checklist in LifeOS, such as the shopping list.
+
+    Use this, not add_task, for shopping and other simple lists: they have no
+    deadline or priority. The list is created if it does not exist yet.
+
+    Args:
+        item: The thing to add, e.g. "milk". Several can be comma-separated.
+        list_name: Which list. Defaults to Shopping.
+    """
+    notes = _live(_read().get("notes", []))
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    target = _find_list(notes, list_name)
+    items = [part.strip() for part in item.split(",") if part.strip()]
+    if not items:
+        return "Nothing to add."
+    if target is None:
+        target = {
+            "id": str(uuid.uuid4()), "title": (list_name or "Shopping").strip().title(),
+            "kind": "list", "body": "", "items": [], "pinned": False, "domainId": None,
+            "createdAt": now, "deletedAt": None,
+        }
+    target["items"] = list(target.get("items") or []) + [
+        {"id": str(uuid.uuid4()), "text": text, "done": False} for text in items]
+    target["updatedAt"] = now
+    _write("notes", [target])
+    return "Added " + ", ".join(items) + " to " + target["title"] + "."
+
+
+def read_list(list_name: str = "Shopping") -> str:
+    """Read out what is still unticked on a LifeOS list.
+
+    Args:
+        list_name: Which list. Defaults to Shopping.
+    """
+    target = _find_list(_live(_read().get("notes", [])), list_name)
+    if target is None:
+        return "There is no " + list_name + " list."
+    left = [i["text"] for i in target.get("items") or [] if not i.get("done")]
+    if not left:
+        return target["title"] + " is empty."
+    return target["title"] + ": " + ", ".join(left) + "."
+
+
+def add_note(text: str, title: str = "") -> str:
+    """Save something to remember in LifeOS - a fact, an idea, a code.
+
+    Use this, not add_task, for anything that is not work to be done.
+
+    Args:
+        text: What to remember, in the user's words.
+        title: Optional short title. Defaults to the start of the text.
+    """
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    heading = (title or text).strip()
+    if len(heading) > 40:
+        heading = heading[:40].rsplit(" ", 1)[0] + "…"
+    _write("notes", [{
+        "id": str(uuid.uuid4()), "title": heading, "kind": "note", "body": text,
+        "items": [], "pinned": False, "domainId": None,
+        "createdAt": now, "updatedAt": now, "deletedAt": None,
+    }])
+    return "Noted."
+
+
+TOOLS = (add_task, list_tasks, complete_task, add_domain, list_domains,
+         add_to_list, read_list, add_note)
