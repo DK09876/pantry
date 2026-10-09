@@ -1,0 +1,17 @@
+# Pantry's microphone loop: "hey pantry" on the Pi's own mic and speaker.
+[Unit]
+Description=Pantry voice assistant (wake word on the Pi's microphone)
+After=network-online.target sound.target lifeos.service
+Wants=network-online.target
+
+[Service]
+User=admin
+SupplementaryGroups=audio
+WorkingDirectory=/home/admin/development/pantry
+ExecStart=/home/admin/development/pantry/.venv/bin/python assistant.py
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

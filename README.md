@@ -12,7 +12,7 @@ a new module and one registry entry, with no change to the voice loop.
 ## What it does
 
 ```
-you: "hey jarvis"                         chime
+you: "hey pantry"                         chime
 you: "what's on my plate today?"          reads back your tasks
 you: "add buy milk tomorrow in Health"    writes to LifeOS, appears in the browser
 you: "mark refill prescription as done"   updates it
@@ -33,7 +33,7 @@ priority.
 
 | Stage | Runs | Component |
 |---|---|---|
-| Wake word | on device | openWakeWord (`hey jarvis`) |
+| Wake word | on device | openWakeWord (`hey pantry`, trained here — falls back to `hey jarvis`) |
 | Endpointing | on device | Silero VAD |
 | Speech to text | cloud | Google Web Speech |
 | Reasoning | cloud | Gemini Flash Lite, with tool calling |
@@ -43,18 +43,40 @@ Three of five stages are local. The intent is to move the other two.
 
 ## Tools
 
-Grouped by the app that owns them; a mode declares which sets are in scope.
+Every LifeOS tool is a thin call to LifeOS's assistant API (`/api/assistant`),
+which runs the app's own actions on the Pi — so voice and the app can never
+disagree about what "done" or "planned" means. The LifeOS side has the tests
+for the behaviour.
 
-| Tool | Does |
+| Say something like | Tool |
 |---|---|
-| `add_task` | name, optional due date, domain, priority — lands in triage |
-| `list_tasks` | today (planned or due) / week / all, ranked by score |
-| `complete_task` | loose name match; logs the day it was done |
-| `add_domain` | new life area |
-| `list_domains` | reads them back |
-| `add_to_list` | item(s) onto a checklist, Shopping by default; creates the list |
-| `read_list` | what is still unticked on a list |
-| `add_note` | something to remember, not a task |
+| "what's on today / Saturday" | `whats_on` |
+| "what should I do next" | `whats_next` |
+| "what's this week" / "what's overdue" / "brief me" | `this_week` / `whats_overdue` / `morning_brief` |
+| "add call mom tomorrow" | `add_task` — only what you said; the rest waits in Needs Details |
+| "put laundry on Saturday" / "I won't get to taxes today" | `plan_task` / `push_to_tomorrow` |
+| "do the dishes again" | `do_again` |
+| "I did laundry" / "I meditated" (yesterday too) | `mark_done` |
+| "I read 12 pages" | `log_progress` |
+| "how's my energy" / "make today a 5" | `energy_today` / `set_today_energy` |
+| "tax docs is waiting on the accountant, chase Thursday" / "what am I waiting on" | `mark_waiting` / `whats_waiting` |
+| "how did this week go" / "what's my meditation streak" | `week_review` / `habit_streak` |
+| "add eggs to shopping" / "what's on the list" / "got the eggs" | `add_to_list` / `read_list` / `tick_off_list` |
+| "remember the wifi code is 4471" / "what's the wifi code" | `add_note` / `find_note` |
+| "undo that" | `undo_last` |
+
+## Siri
+
+`python -m pantry.server` listens on `127.0.0.1:8790`; LifeOS's `/api/voice`
+forwards to it. An iOS Shortcut ("Dictate Text" → "Get Contents of URL" POST
+`https://pai.tail57458f.ts.net/api/voice` with `{"text": …}` → "Speak Text"
+of `reply`) makes it "Hey Siri, Pantry" on any Apple device on the tailnet.
+Each device keeps a short conversation for follow-ups.
+
+## Services
+
+`deploy/pantry-api.service` (Siri endpoint) and `deploy/pantry-voice.service`
+(the Pi's own mic, "hey pantry" — see [docs/wake-word.md](docs/wake-word.md)).
 
 ## Running it
 

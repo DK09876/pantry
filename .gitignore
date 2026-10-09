@@ -21,7 +21,9 @@ __pycache__/
 .vscode/
 
 # Local models (large binaries)
-models/
+models/*
+# The wake word model is small and ours; keep it.
+!models/wake/
 *.gguf
 *.onnx
 *.bin

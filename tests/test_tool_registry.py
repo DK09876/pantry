@@ -11,9 +11,8 @@ from pantry.tools import REGISTRY, for_names
 def test_lifeos_tools_are_registered():
     assert "lifeos" in REGISTRY
     names = {fn.__name__ for fn in REGISTRY["lifeos"]}
-    assert names == {"add_task", "list_tasks", "complete_task",
-                     "add_domain", "list_domains",
-                     "add_to_list", "read_list", "add_note"}
+    assert {"whats_on", "add_task", "plan_task", "do_again", "mark_done",
+            "log_progress", "undo_last", "add_to_list", "find_note"} <= names
 
 
 def test_for_names_flattens_requested_sets():
@@ -32,7 +31,7 @@ def test_asking_for_nothing_gives_nothing():
 
 def test_general_mode_has_the_lifeos_tools():
     assert DEFAULT.tools == ("lifeos",)
-    assert len(for_names(DEFAULT.tools)) == 8
+    assert len(for_names(DEFAULT.tools)) == len(REGISTRY["lifeos"])
 
 
 def test_every_tool_is_describable_to_the_model():

@@ -1,0 +1,17 @@
+# Pantry's text endpoint - what Siri reaches through LifeOS's /api/voice.
+# Install: sudo cp deploy/pantry-*.service /etc/systemd/system/ && sudo systemctl enable --now pantry-api
+[Unit]
+Description=Pantry text endpoint (Siri / Shortcuts)
+After=network-online.target lifeos.service
+Wants=network-online.target
+
+[Service]
+User=admin
+WorkingDirectory=/home/admin/development/pantry
+ExecStart=/home/admin/development/pantry/.venv/bin/python -m pantry.server
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

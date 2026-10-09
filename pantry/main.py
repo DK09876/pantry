@@ -28,6 +28,9 @@ SLEEP_PHRASES = (
     "that's all", "thats all", "stop listening", "nothing else",
 )
 
+# A conversation forgets itself after this long without a turn.
+SESSION_IDLE_S = float(os.environ.get("PANTRY_SESSION_IDLE_S", 300))
+
 # How long to keep listening for a follow-up before going back to sleep.
 FOLLOWUP_TIMEOUT_S = float(os.environ.get("PANTRY_FOLLOWUP_TIMEOUT_S", 8))
 
@@ -58,6 +61,7 @@ class Assistant:
         self.brain = Brain()
         self.mode = DEFAULT
         self.chat = self.brain.session(self.mode)
+        self._last_turn = time.monotonic()
 
     def _await_wake(self, audio):
         print(f"\n[sleeping] say '{self.wake.label}'")
@@ -85,6 +89,12 @@ class Assistant:
 
     def _respond(self, text):
         """Answer, running any tools the model decides to call."""
+        # A conversation used to last as long as the process, so every request
+        # carried hours of history: slower, costlier, and old context leaking
+        # into new questions. After a few quiet minutes, start fresh.
+        if time.monotonic() - self._last_turn > SESSION_IDLE_S:
+            self.chat = self.brain.session(self.mode)
+        self._last_turn = time.monotonic()
         started = time.monotonic()
         print("[thinking]", end="", flush=True)
         try:

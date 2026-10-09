@@ -65,7 +65,12 @@ PIPER_NOISE_SCALE = _f("PANTRY_PIPER_NOISE_SCALE", 1.0)
 PIPER_NOISE_W_SCALE = _f("PANTRY_PIPER_NOISE_W_SCALE", 1.4)
 
 # --- Wake word -----------------------------------------------------------
-WAKE_MODEL = os.environ.get("PANTRY_WAKE_MODEL", "hey_jarvis_v0.1")
+# "hey pantry" is our own model, trained from synthetic speech (see
+# docs/wake-word.md) and kept in the repo. Until it exists, fall back to the
+# stock "hey jarvis".
+_PANTRY_WAKE = ROOT / "models" / "wake" / "hey_pantry.onnx"
+WAKE_MODEL = os.environ.get(
+    "PANTRY_WAKE_MODEL", str(_PANTRY_WAKE) if _PANTRY_WAKE.exists() else "hey_jarvis_v0.1")
 WAKE_THRESHOLD = _f("PANTRY_WAKE_THRESHOLD", 0.5)
 # Ignore repeat fires for this long after a trigger.
 WAKE_REFRACTORY_S = _f("PANTRY_WAKE_REFRACTORY_S", 2.0)

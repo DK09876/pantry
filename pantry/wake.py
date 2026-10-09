@@ -27,6 +27,12 @@ FRAME_SAMPLES = 1280
 
 
 def model_path(name=config.WAKE_MODEL):
+    # A trained model of our own ("hey pantry") is a file path; the ones
+    # openWakeWord ships with are names.
+    if name.endswith(".onnx"):
+        if not os.path.exists(name):
+            raise FileNotFoundError(f"No wake model at {name}")
+        return name
     path = os.path.join(MODEL_DIR, f"{name}.onnx")
     if not os.path.exists(path):
         available = sorted(
@@ -47,8 +53,9 @@ class WakeDetector:
 
     def __init__(self, name=config.WAKE_MODEL, threshold=config.WAKE_THRESHOLD,
                  refractory_s=config.WAKE_REFRACTORY_S):
-        self.name = name
-        self.label = name.rsplit("_v", 1)[0].replace("_", " ")
+        # openWakeWord reports scores under the model file's stem.
+        self.name = os.path.splitext(os.path.basename(name))[0]
+        self.label = self.name.rsplit("_v", 1)[0].replace("_", " ")
         self.threshold = threshold
         self.refractory_s = refractory_s
         self.model = Model(wakeword_model_paths=[model_path(name)])
