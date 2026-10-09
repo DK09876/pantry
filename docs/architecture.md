@@ -46,7 +46,7 @@ Two of the five pipeline stages are still remote; the rest run on the Pi.
 ```mermaid
 flowchart TD
     A["Microphone<br/>48 kHz, decimated 3:1"] --> B["Wake word<br/>openWakeWord"]
-    B -->|"'hey jarvis'"| C["Endpointing<br/>Silero VAD"]
+    B -->|"'hey pantry'"| C["Endpointing<br/>Silero VAD"]
     C -->|utterance| D["Speech to text<br/>Google Web Speech"]
     D -->|text| E["Reasoning<br/>Gemini + tools"]
     E -->|reply| F["Speech<br/>Piper, on device"]
@@ -114,7 +114,7 @@ sequenceDiagram
     participant L as LifeOS
     participant B as Browser
 
-    U->>P: "hey jarvis"
+    U->>P: "hey pantry"
     P->>U: chime
     U->>P: "add buy milk tomorrow in Health"
     P->>P: VAD ends utterance

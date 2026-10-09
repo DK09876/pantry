@@ -23,6 +23,7 @@ from google.genai.errors import APIError, ServerError
 # Importing config loads .env, which must happen before genai.Client() looks
 # for GEMINI_API_KEY.
 from . import config  # noqa: F401
+from .clock import with_now
 from .model_select import pick_model
 from .tools import for_names
 
@@ -73,9 +74,10 @@ class Brain:
         synthesises locally in a fraction of realtime, so streaming bought
         very little and cost reliability.
         """
+        stamped = with_now(text)
         for attempt in range(max_retries):
             try:
-                response = chat.send_message(text)
+                response = chat.send_message(stamped)
                 return (response.text or "").strip()
             except httpx.TimeoutException:
                 if attempt < max_retries - 1:

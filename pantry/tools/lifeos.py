@@ -1,18 +1,22 @@
 """Tools backed by LifeOS.
 
-LifeOS runs on this same Pi, so these talk to it over localhost rather than
-out through Tailscale.
+LifeOS runs on this same Pi. Every tool here is a thin call to its assistant
+API (/api/assistant), which runs the app's own actions - so "I did laundry"
+said aloud does exactly what ticking it in the app does. Keeping the rules in
+one place is the point: an earlier version re-implemented some of them in
+Python, and the two copies were bound to drift apart.
 
-Every function here is handed to the model as-is: the type hints become the
+Every function is handed to the model as-is: the type hints become the
 parameter schema and the docstring is what the model reads to decide whether
 to call it. The wording of these docstrings is functional, not decoration.
+
+Each returns one short sentence from LifeOS, written to be spoken.
 """
 
 import json
 import os
+import urllib.error
 import urllib.request
-import uuid
-from datetime import UTC, date, datetime, timedelta
 
 # Importing config loads .env. These module-level settings read os.environ at
 # import time, so without this they depend on some other module having loaded
@@ -23,286 +27,258 @@ BASE_URL = os.environ.get("PANTRY_LIFEOS_URL", "http://localhost:3000")
 PROFILE = os.environ.get("PANTRY_LIFEOS_PROFILE", "dk")
 TIMEOUT = float(os.environ.get("PANTRY_LIFEOS_TIMEOUT_S", 8))
 
+UNREACHABLE = "LifeOS isn't answering right now, so I couldn't do that."
 
-def _request(method, path, payload=None):
-    data = json.dumps(payload).encode() if payload is not None else None
-    request = urllib.request.Request(BASE_URL + path, data=data, method=method)
-    if data:
-        request.add_header("Content-Type", "application/json")
+
+def _request(intent, args):
+    payload = json.dumps({"intent": intent, "args": args}).encode()
+    request = urllib.request.Request(
+        f"{BASE_URL}/api/assistant?profile={PROFILE}", data=payload, method="POST",
+        headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        body = response.read().decode()
-    return json.loads(body) if body else {}
+        return json.loads(response.read().decode())
 
 
-def _read():
-    return _request("GET", "/api/data?profile=" + PROFILE)
+def _ask(intent, **args):
+    """Run one LifeOS intent and return what it says.
 
-
-def _write(collection, records):
-    return _request("POST", "/api/data?profile=" + PROFILE,
-                    {"collection": collection, "records": records})
-
-
-def _live(rows):
-    return [row for row in rows if not row.get("deletedAt")]
-
-
-def _resolve_domain(name, domains):
-    """Match a spoken domain name loosely - speech gives a name, not an id."""
-    if not name:
-        return None
-    wanted = name.strip().lower()
-    for domain in domains:
-        if domain.get("name", "").lower() == wanted:
-            return domain
-    for domain in domains:
-        if wanted in domain.get("name", "").lower():
-            return domain
-    return None
-
-
-def _task_status(task):
-    """Mirror of isTaskComplete in LifeOS lib/hooks.ts.
-
-    The web app promotes a task out of Needs Details only once priority,
-    urgency, domain and action points are all set. Hard-coding "Backlog" here
-    let voice-added tasks skip that triage, so they arrived scored as if they
-    had been thought about when they had not.
+    Never raises: a tool that throws surfaces to the user as "I could not
+    reach the model", which is wrong when the model was fine and LifeOS was
+    not. Saying what actually happened is more useful.
     """
-    ready = all((
-        (task.get("taskName") or "").strip(),
-        task.get("taskPriority"),
-        task.get("urgency"),
-        task.get("domainId"),
-        task.get("actionPoints"),
-    ))
-    if not ready:
-        return "Needs Details"
-    return "Planned" if task.get("plannedDate") else "Backlog"
+    clean = {k: v for k, v in args.items() if v not in (None, "")}
+    try:
+        return _request(intent, clean).get("say") or "Done."
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return UNREACHABLE
 
 
-def _resolve_due(due_date):
-    if not due_date:
-        return ""
-    lowered = due_date.strip().lower()
-    if lowered == "today":
-        return date.today().isoformat()
-    if lowered == "tomorrow":
-        return (date.today() + timedelta(days=1)).isoformat()
-    return due_date.strip()
+# --- what's on ---------------------------------------------------------------
 
-
-def add_task(task_name: str, due_date: str = "", domain: str = "",
-             priority: str = "3 - Normal") -> str:
-    """Add a task to the user's LifeOS task list.
+def whats_on(day: str = "today") -> str:
+    """What is planned for a day: tasks, habits still to do, events, and how
+    much energy (AP) is planned against the day's budget.
 
     Args:
-        task_name: What the task is, in the user's own words.
-        due_date: Optional. YYYY-MM-DD, or the words today or tomorrow.
-        domain: Optional life area such as Work, Health, Personal.
-        priority: One of 1 - Urgent, 2 - High, 3 - Normal, 4 - Low,
-            5 - Optional. Defaults to Normal when the user does not say.
+        day: today (the default), tomorrow, a weekday such as Saturday,
+            "next friday", or a date YYYY-MM-DD.
     """
-    payload = _read()
-    matched = _resolve_domain(domain, _live(payload.get("domains", [])))
-    resolved_due = _resolve_due(due_date)
-    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-
-    task = {
-        "id": str(uuid.uuid4()),
-        "taskName": task_name,
-        "taskPriority": priority or None,
-        # Not inferable from a spoken request; left unset so the task shows up
-        # for triage rather than claiming a judgement nobody made.
-        "urgency": None,
-        "taskScore": 0,
-        "importanceScore": 0,
-        "urgencyScore": 0,
-        "dueDate": resolved_due or None,
-        "plannedDate": None,
-        "recurrence": "None",
-        "lastCompleted": None,
-        "doneDate": None,
-        "actionPoints": None,
-        "notes": "",
-        "domainId": matched["id"] if matched else None,
-        "projectId": None,
-        "blockedBy": [],
-        "createdAt": now,
-        "updatedAt": now,
-        "deletedAt": None,
-    }
-    task["status"] = _task_status(task)
-    _write("tasks", [task])
-
-    where = " in " + matched["name"] if matched else ""
-    when = ", due " + resolved_due if resolved_due else ""
-    return "Added " + task_name + where + when + "."
+    if (day or "today").strip().lower() == "today":
+        return _ask("today")
+    return _ask("day", day=day)
 
 
-def list_tasks(when: str = "all", limit: int = 5) -> str:
-    """List the user's current LifeOS tasks.
+def whats_next() -> str:
+    """The single best thing to do next today, within the energy left."""
+    return _ask("next")
+
+
+def this_week() -> str:
+    """How many things are planned on each remaining day of this week."""
+    return _ask("week")
+
+
+def whats_overdue() -> str:
+    """Tasks past their due date, and plans whose day went by undone."""
+    return _ask("overdue")
+
+
+def morning_brief() -> str:
+    """A spoken summary of today plus anything overdue. Use for "brief me"."""
+    return _ask("brief")
+
+
+# --- capture -------------------------------------------------------------------
+
+def add_task(task_name: str, day: str = "", due: str = "", domain: str = "",
+             priority: str = "", urgency: str = "", effort: int = -1) -> str:
+    """Add a new task to LifeOS. Only pass what the user actually said;
+    anything left out stays unset and the task waits for the user to fill it
+    in. Never invent a priority, urgency, domain or effort.
 
     Args:
-        when: today for tasks due today or overdue, week for the next seven
-            days, or all for everything not yet done.
-        limit: How many to return. Keep it small; this is read aloud.
+        task_name: What the task is, in the user's words.
+        day: The day they plan to do it, e.g. today, tomorrow, Saturday.
+        due: The day it is due, if they said one.
+        domain: Life area such as Home, Work, Finance, if said.
+        priority: essential, high, normal, low or optional, if said.
+        urgency: critical, high, normal, low or someday, if said.
+        effort: 1 (tiny) to 5 (big), if said; -1 when not.
     """
-    tasks = _live(_read().get("tasks", []))
-    open_tasks = [t for t in tasks if t.get("status") not in ("Done", "Archived")]
-
-    scope = (when or "all").strip().lower()
-    if scope in ("today", "week"):
-        horizon = date.today() + timedelta(days=7 if scope == "week" else 0)
-        # Planned for the day counts as much as due on it - "what do I have
-        # today" means the plan, not only the deadlines. Blocked work is not
-        # the user's to do, so it is left out, as the app does.
-        def on(field):
-            return lambda t: t.get(field) and date.fromisoformat(t[field]) <= horizon
-        open_tasks = [t for t in open_tasks if t.get("status") != "Blocked"
-                      and (on("dueDate")(t) or on("plannedDate")(t))]
-
-    if not open_tasks:
-        return "No tasks." if scope == "all" else "Nothing due " + scope + "."
-
-    open_tasks.sort(key=lambda t: t.get("taskScore") or 0, reverse=True)
-    names = [t.get("taskName", "untitled") for t in open_tasks[:limit]]
-    return str(len(open_tasks)) + " open. Top: " + "; ".join(names) + "."
+    return _ask("add_task", name=task_name, day=day, due=due, domain=domain,
+                priority=priority, urgency=urgency, effort=effort if effort >= 0 else None)
 
 
-def complete_task(task_name: str) -> str:
-    """Mark a LifeOS task as done.
+def add_to_list(items: str, list_name: str = "Shopping") -> str:
+    """Add items to a checklist such as the shopping list. Use this, not
+    add_task, for shopping and other simple lists.
 
     Args:
-        task_name: The task to complete. Matched loosely, so a partial name
-            is fine.
-    """
-    tasks = _live(_read().get("tasks", []))
-    wanted = task_name.strip().lower()
-
-    match = next((t for t in tasks if t.get("taskName", "").lower() == wanted), None)
-    if match is None:
-        match = next((t for t in tasks if wanted in t.get("taskName", "").lower()), None)
-    if match is None:
-        return "I could not find a task matching " + task_name + "."
-
-    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    match["status"] = "Done"
-    # A full timestamp, not date.today(): the app reads a bare YYYY-MM-DD as
-    # UTC midnight, which is the previous evening here, so a task finished
-    # today was reported as finished yesterday.
-    match["doneDate"] = now
-    # Recurrence keys off lastCompleted; without it a recurring task completed
-    # by voice never came back.
-    match["lastCompleted"] = now
-    # The app keeps a log of completion days, which is what survives a
-    # recurring task coming back for its next occurrence.
-    today = date.today().isoformat()
-    match["completions"] = sorted(set((match.get("completions") or []) + [today]))
-    match["updatedAt"] = now
-    _write("tasks", [match])
-    return "Marked " + match["taskName"] + " as done."
-
-
-def add_domain(name: str, priority: str = "2 - Important") -> str:
-    """Create a life area (domain) in LifeOS, such as Work or Health.
-
-    Args:
-        name: What to call the area.
-        priority: 1 - Critical, 2 - Important, or 3 - Maintenance.
-    """
-    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    _write("domains", [{
-        "id": str(uuid.uuid4()),
-        "name": name,
-        "icon": None,
-        "priority": priority,
-        "createdAt": now,
-        "updatedAt": now,
-        "deletedAt": None,
-    }])
-    return "Created the " + name + " area."
-
-
-def list_domains() -> str:
-    """List the user's life areas (domains) in LifeOS."""
-    domains = _live(_read().get("domains", []))
-    if not domains:
-        return "No areas set up yet."
-    return "Areas: " + ", ".join(d.get("name", "unnamed") for d in domains) + "."
-
-
-def _find_list(notes, name):
-    wanted = (name or "").strip().lower()
-    lists = [n for n in notes if n.get("kind") == "list"]
-    exact = next((n for n in lists if n.get("title", "").lower() == wanted), None)
-    return exact or next((n for n in lists if wanted and wanted in n.get("title", "").lower()), None)
-
-
-def add_to_list(item: str, list_name: str = "Shopping") -> str:
-    """Add an item to a checklist in LifeOS, such as the shopping list.
-
-    Use this, not add_task, for shopping and other simple lists: they have no
-    deadline or priority. The list is created if it does not exist yet.
-
-    Args:
-        item: The thing to add, e.g. "milk". Several can be comma-separated.
+        items: The thing or things to add, comma-separated, e.g. "eggs, milk".
         list_name: Which list. Defaults to Shopping.
     """
-    notes = _live(_read().get("notes", []))
-    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    target = _find_list(notes, list_name)
-    items = [part.strip() for part in item.split(",") if part.strip()]
-    if not items:
-        return "Nothing to add."
-    if target is None:
-        target = {
-            "id": str(uuid.uuid4()), "title": (list_name or "Shopping").strip().title(),
-            "kind": "list", "body": "", "items": [], "pinned": False, "domainId": None,
-            "createdAt": now, "deletedAt": None,
-        }
-    target["items"] = list(target.get("items") or []) + [
-        {"id": str(uuid.uuid4()), "text": text, "done": False} for text in items]
-    target["updatedAt"] = now
-    _write("notes", [target])
-    return "Added " + ", ".join(items) + " to " + target["title"] + "."
+    return _ask("list_add", items=items, list=list_name)
 
 
 def read_list(list_name: str = "Shopping") -> str:
-    """Read out what is still unticked on a LifeOS list.
+    """Read out what is still unticked on a list.
 
     Args:
         list_name: Which list. Defaults to Shopping.
     """
-    target = _find_list(_live(_read().get("notes", [])), list_name)
-    if target is None:
-        return "There is no " + list_name + " list."
-    left = [i["text"] for i in target.get("items") or [] if not i.get("done")]
-    if not left:
-        return target["title"] + " is empty."
-    return target["title"] + ": " + ", ".join(left) + "."
+    return _ask("list_read", list=list_name)
+
+
+def tick_off_list(item: str, list_name: str = "") -> str:
+    """Tick an item off a list, e.g. "got the eggs".
+
+    Args:
+        item: The item that was got or done.
+        list_name: The list, if the user said which.
+    """
+    return _ask("list_tick", item=item, list=list_name)
 
 
 def add_note(text: str, title: str = "") -> str:
-    """Save something to remember in LifeOS - a fact, an idea, a code.
-
-    Use this, not add_task, for anything that is not work to be done.
+    """Save something to remember - a fact, an idea, a code. Use this, not
+    add_task, for anything that is not work to be done.
 
     Args:
         text: What to remember, in the user's words.
-        title: Optional short title. Defaults to the start of the text.
+        title: Optional short title.
     """
-    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    heading = (title or text).strip()
-    if len(heading) > 40:
-        heading = heading[:40].rsplit(" ", 1)[0] + "…"
-    _write("notes", [{
-        "id": str(uuid.uuid4()), "title": heading, "kind": "note", "body": text,
-        "items": [], "pinned": False, "domainId": None,
-        "createdAt": now, "updatedAt": now, "deletedAt": None,
-    }])
-    return "Noted."
+    return _ask("add_note", text=text, title=title)
 
 
-TOOLS = (add_task, list_tasks, complete_task, add_domain, list_domains,
-         add_to_list, read_list, add_note)
+def find_note(query: str) -> str:
+    """Look up something the user saved, e.g. "what's the wifi code".
+
+    Args:
+        query: The words to look for.
+    """
+    return _ask("find_note", query=query)
+
+
+# --- planning ------------------------------------------------------------------
+
+def plan_task(task_name: str, day: str = "today") -> str:
+    """Put an existing task on a day, or move it to another day. Also brings
+    back a finished chore if that is what was named.
+
+    Args:
+        task_name: The task, loosely - "laundry" finds "Do laundry".
+        day: today, tomorrow, a weekday, "next friday", or YYYY-MM-DD.
+    """
+    return _ask("plan", name=task_name, day=day)
+
+
+def push_to_tomorrow(task_name: str) -> str:
+    """Move a task to tomorrow, e.g. "I won't get to the taxes today".
+
+    Args:
+        task_name: The task.
+    """
+    return _ask("push", name=task_name)
+
+
+def do_again(task_name: str, today: bool = True) -> str:
+    """Bring back a finished chore that gets done regularly, such as the
+    dishes or laundry, instead of creating a new task.
+
+    Args:
+        task_name: The chore.
+        today: True to plan it for today (the default), False to just put it
+            back on the list.
+    """
+    return _ask("do_again", name=task_name, today=today)
+
+
+# --- doing ---------------------------------------------------------------------
+
+def mark_done(name: str, day: str = "today") -> str:
+    """Mark a task or a habit as done, e.g. "I did laundry", "I meditated".
+    Use day="yesterday" for something done yesterday.
+
+    Args:
+        name: The task or habit, loosely.
+        day: today (default) or yesterday.
+    """
+    return _ask("complete", name=name, day=day)
+
+
+def log_progress(amount: float, goal: str = "", day: str = "today") -> str:
+    """Log progress towards a goal, e.g. "I read 12 pages" or "ran 5 km".
+
+    Args:
+        amount: How much was done.
+        goal: The goal or its unit (e.g. "pages", "Read a Book"), if said.
+        day: today (default) or yesterday.
+    """
+    return _ask("log_progress", amount=amount, goal=goal, day=day)
+
+
+def undo_last() -> str:
+    """Undo the last change made by voice, e.g. "undo that", "no, cancel that"."""
+    return _ask("undo")
+
+
+# --- energy --------------------------------------------------------------------
+
+def energy_today() -> str:
+    """How much energy (AP) today has used, has planned, and has left."""
+    return _ask("energy")
+
+
+def set_today_energy(ap: int) -> str:
+    """Change today's energy budget only, e.g. "I'm wiped, make today a 5".
+
+    Args:
+        ap: The new budget for today in AP.
+    """
+    return _ask("set_energy", ap=ap)
+
+
+# --- waiting -------------------------------------------------------------------
+
+def mark_waiting(task_name: str, waiting_on: str = "", chase_day: str = "") -> str:
+    """Mark a task as blocked, waiting on someone or something, with a day to
+    chase it up, e.g. "tax docs is waiting on the accountant, chase Thursday".
+
+    Args:
+        task_name: The task that is waiting.
+        waiting_on: Who or what it is waiting on.
+        chase_day: When to follow up; defaults to in 3 days.
+    """
+    return _ask("block", name=task_name, waiting_on=waiting_on, chase=chase_day)
+
+
+def whats_waiting() -> str:
+    """Everything blocked, what it is waiting on, and when to chase it."""
+    return _ask("waiting")
+
+
+# --- looking back -----------------------------------------------------------------
+
+def week_review() -> str:
+    """How this week has gone: things done, energy, backlog, habits."""
+    return _ask("review")
+
+
+def habit_streak(habit_name: str) -> str:
+    """The current and best streak for a habit.
+
+    Args:
+        habit_name: The habit, loosely.
+    """
+    return _ask("streak", name=habit_name)
+
+
+TOOLS = (
+    whats_on, whats_next, this_week, whats_overdue, morning_brief,
+    add_task, add_to_list, read_list, tick_off_list, add_note, find_note,
+    plan_task, push_to_tomorrow, do_again,
+    mark_done, log_progress, undo_last,
+    energy_today, set_today_energy,
+    mark_waiting, whats_waiting,
+    week_review, habit_streak,
+)
