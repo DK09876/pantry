@@ -20,6 +20,21 @@ Python 3.10-era packages):
 
 To retrain: `orb -m wakeword bash -lc "cd ~/Desktop/Development/wakeword && ./train_hey_pantry.sh"`.
 
+## How good it is
+
+Measured on the held-out test set (synthetic clips with heavy reverb and
+noise) and ~11 hours of ordinary speech that should never trigger it:
+
+| Threshold | Recall | False wakes / hour |
+|---|---|---|
+| 0.5 | 53% | 0.27 |
+| 0.6 | 51% | 0.18 |
+| 0.9 | 43% | 0.09 |
+
+The Pi runs at 0.6. Clean speech in a quiet room is far easier than the test
+clips, so real-world recall is higher; tune from how it behaves for you.
+The training script is kept at `docs/train_hey_pantry.sh`.
+
 ## Tuning
 
 `PANTRY_WAKE_THRESHOLD` in `.env` (default 0.5). Raise it if it fires on TV
