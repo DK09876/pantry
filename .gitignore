@@ -27,3 +27,6 @@ models/*
 *.gguf
 *.onnx
 *.bin
+
+# ...except the wake word model, which is small and ours.
+!models/wake/*.onnx
